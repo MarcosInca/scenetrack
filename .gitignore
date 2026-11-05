@@ -1,0 +1,13 @@
+# Secretos
+.env
+.env.*
+!.env.example
+*.pem
+
+# Sistema y editor
+.DS_Store
+.vscode/
+
+# Binarios de Go
+bin/
+*.exe
