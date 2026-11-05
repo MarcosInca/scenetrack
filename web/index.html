@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SceneTrack</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 3rem auto; padding: 0 1rem; text-align: center; }
+  button { font-size: 1.1rem; padding: .8rem 1.6rem; border-radius: 999px; border: 0; background: #111; color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { margin: 1.5rem 0; color: #555; }
+  ul { list-style: none; padding: 0; text-align: left; }
+  li { padding: .6rem 0; border-bottom: 1px solid #ddd; }
+</style>
+</head>
+<body>
+<h1>SceneTrack</h1>
+<button id="btn">🎙️ Escuchar</button>
+<p id="status"></p>
+<h2 id="song"></h2>
+<ul id="usages"></ul>
+
+<script>
+const SECONDS = 10;
+const btn = document.getElementById("btn");
+const statusEl = document.getElementById("status");
+const songEl = document.getElementById("song");
+const usagesEl = document.getElementById("usages");
+
+btn.addEventListener("click", async () => {
+  btn.disabled = true;
+  songEl.textContent = "";
+  usagesEl.replaceChildren();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    const chunks = [];
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    const stopped = new Promise((resolve) => (recorder.onstop = resolve));
+
+    recorder.start();
+    statusEl.textContent = `Escuchando ${SECONDS} segundos...`;
+    await new Promise((r) => setTimeout(r, SECONDS * 1000));
+    recorder.stop();
+    await stopped;
+    stream.getTracks().forEach((t) => t.stop()); // apaga el micrófono
+
+    statusEl.textContent = "Buscando...";
+    const blob = new Blob(chunks, { type: recorder.mimeType });
+    const res = await fetch("/v1/identify", {
+      method: "POST",
+      headers: { "Content-Type": blob.type },
+      body: blob,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "error desconocido");
+
+    statusEl.textContent = "";
+    show(data);
+  } catch (err) {
+    statusEl.textContent = "Error: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function show(data) {
+  songEl.textContent = `${data.title} — ${data.artist}`;
+  if (data.usages.length === 0) {
+    statusEl.textContent = "Todavía no hay usos cargados para esta canción.";
+    return;
+  }
+  for (const u of data.usages) {
+    const li = document.createElement("li");
+    let text = `${u.kind}: ${u.work_title}`;
+    if (u.year) text += ` (${u.year})`;
+    if (u.season) text += ` · T${u.season}E${u.episode}`;
+    if (u.note) text += ` · ${u.note}`;
+    li.textContent = text; // textContent, no innerHTML: evita inyección de HTML
+    usagesEl.appendChild(li);
+  }
+}
+</script>
+</body>
+</html>
