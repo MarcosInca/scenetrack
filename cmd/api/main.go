@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"scenetrack/internal/domain"
 	"scenetrack/internal/recognition"
 	"scenetrack/internal/repository/memory"
 	"scenetrack/internal/repository/postgres"
@@ -22,74 +19,75 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	if err := run(logger); err != nil {
-		logger.Error("fatal", "err", err)
+	if err := run(); err != nil {
+		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
-	var repo service.UsageRepository
-
-	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		pool, err := pgxpool.New(ctx, dsn)
-		if err != nil {
-			return fmt.Errorf("create pool: %w", err)
-		}
-		defer pool.Close()
-		if err := pool.Ping(ctx); err != nil {
-			return fmt.Errorf("connect database: %w", err)
-		}
-		repo = postgres.NewUsageRepo(pool)
-		logger.Info("using postgres")
-	} else {
-		mem := memory.NewUsageRepo()
-		mem.Add(
-			domain.Track{Title: "Demo Song", Artist: "Demo Artist"},
-			domain.Usage{
-				Work: domain.Work{Kind: domain.KindMovie, Title: "Pelicula Demo", Year: 2001},
-				Note: "Escena de la persecución final",
-			},
-		)
-		repo = mem
-		logger.Info("using in-memory data")
-	}
-
-	svc := service.New(recognition.NewMock(), repo)
-	h := httpapi.New(svc, logger)
-
-	root := http.NewServeMux()
-	root.Handle("/v1/", h.Routes())
-	root.Handle("/healthz", h.Routes())
-	root.Handle("/", http.FileServer(http.Dir("web")))
-
-	srv := &http.Server{
-		Addr:              ":8080",
-		Handler:           root,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
-
+func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	repo, closeRepo, err := newRepo(ctx)
+	if err != nil {
+		return err
+	}
+	defer closeRepo()
+
+	svc := service.New(newRecognizer(), repo)
+	srv := &http.Server{
+		Addr:              ":8080",
+		Handler:           httpapi.New(svc).Routes("web"),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second, // mayor que el timeout del servicio
+	}
+
+	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("listening", "addr", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("server failed", "err", err)
-			stop()
-		}
+		slog.Info("escuchando", "addr", srv.Addr)
+		errCh <- srv.ListenAndServe()
 	}()
 
-	<-ctx.Done()
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done(): // Ctrl+C
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	}
+}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+// newRepo usa Postgres si hay DATABASE_URL; si no, memoria.
+func newRepo(ctx context.Context) (service.UsageRepository, func(), error) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		slog.Info("datos: memoria (falta DATABASE_URL)")
+		return memory.NewDemo(), func() {}, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, nil, err
+	}
+	slog.Info("datos: postgres")
+	return postgres.NewUsageRepo(pool), pool.Close, nil
+}
+
+// newRecognizer usa AudD si hay token; si no, el mock.
+func newRecognizer() recognition.Recognizer {
+	if token := os.Getenv("AUDD_API_TOKEN"); token != "" {
+		slog.Info("reconocimiento: AudD")
+		return recognition.NewAudD(token)
+	}
+	slog.Info("reconocimiento: mock (falta AUDD_API_TOKEN)")
+	return recognition.NewMock()
 }

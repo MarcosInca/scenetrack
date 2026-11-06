@@ -5,47 +5,126 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SceneTrack</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 3rem auto; padding: 0 1rem; text-align: center; }
-  button { font-size: 1.1rem; padding: .8rem 1.6rem; border-radius: 999px; border: 0; background: #111; color: #fff; cursor: pointer; }
-  button:disabled { opacity: .5; cursor: default; }
-  #status { margin: 1.5rem 0; color: #555; }
-  ul { list-style: none; padding: 0; text-align: left; }
-  li { padding: .6rem 0; border-bottom: 1px solid #ddd; }
+  :root { --bg:#0f1115; --card:#181b22; --text:#f2f3f5; --muted:#8b93a1; --border:#262a33; --accent:#7c5cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:start center; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,sans-serif; }
+  main { width:min(480px,100%); padding:2.5rem 1.25rem 4rem; text-align:center; }
+  h1 { margin:0 0 .25rem; font-size:1.7rem; letter-spacing:-.02em; }
+  .sub { margin:0 0 2rem; color:var(--muted); }
+
+  .dial { position:relative; width:220px; height:220px; margin:0 auto 1rem; }
+  .dial svg { position:absolute; inset:0; transform:rotate(-90deg); }
+  .rail { fill:none; stroke:var(--border); stroke-width:8; }
+  #ring { fill:none; stroke:url(#grad); stroke-width:8; stroke-linecap:round; }
+  #btn { position:absolute; inset:16px; border-radius:50%; border:0; background:var(--card); color:var(--text); font-size:3rem; cursor:pointer; transition:transform .15s; }
+  #btn:hover { transform:scale(1.03); }
+  #btn:disabled { cursor:default; transform:none; }
+  #label { font-variant-numeric:tabular-nums; font-weight:700; }
+  [data-state="listening"] #btn { animation:pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse {
+    0%,100% { box-shadow:0 0 0 0 rgba(124,92,255,.45); }
+    50%     { box-shadow:0 0 0 16px rgba(124,92,255,0); }
+  }
+
+  #status { min-height:1.5rem; margin:0 0 1.5rem; color:var(--muted); }
+  .song, .usage { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:1rem 1.25rem; text-align:left; }
+  .song { margin-bottom:1rem; }
+  .song h2 { margin:0; font-size:1.2rem; }
+  .song p { margin:.2rem 0 0; color:var(--muted); }
+  .usage { margin-bottom:.75rem; }
+  .usage h3 { margin:.5rem 0 0; font-size:1.05rem; }
+  .usage p { margin:.25rem 0 0; color:var(--muted); font-size:.92rem; }
+  .badge { display:inline-block; padding:.15rem .6rem; border-radius:999px; font-size:.75rem; font-weight:600; background:rgba(124,92,255,.18); color:#b6a6ff; }
 </style>
 </head>
 <body>
-<h1>SceneTrack</h1>
-<button id="btn">🎙️ Escuchar</button>
-<p id="status"></p>
-<h2 id="song"></h2>
-<ul id="usages"></ul>
+<main id="app" data-state="idle">
+  <h1>SceneTrack</h1>
+  <p class="sub">¿En qué película o serie suena esta canción?</p>
+
+  <div class="dial">
+    <svg viewBox="0 0 220 220" aria-hidden="true">
+      <defs>
+        <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#7c5cff"/>
+          <stop offset="1" stop-color="#22d3ee"/>
+        </linearGradient>
+      </defs>
+      <circle class="rail" cx="110" cy="110" r="96"/>
+      <circle id="ring" cx="110" cy="110" r="96"/>
+    </svg>
+    <button id="btn" aria-label="Escuchar"><span id="label">🎙️</span></button>
+  </div>
+
+  <p id="status">Tocá para escuchar</p>
+  <section id="results"></section>
+</main>
 
 <script>
 const SECONDS = 10;
+const CIRC = 2 * Math.PI * 96;
+const KINDS = { movie: "Película", series: "Serie", trailer: "Tráiler" };
+
+const app = document.getElementById("app");
 const btn = document.getElementById("btn");
+const label = document.getElementById("label");
 const statusEl = document.getElementById("status");
-const songEl = document.getElementById("song");
-const usagesEl = document.getElementById("usages");
+const ring = document.getElementById("ring");
+const results = document.getElementById("results");
+ring.style.strokeDasharray = CIRC;
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text; // textContent: evita inyección de HTML
+  return e;
+}
+
+function resetRing() {
+  ring.style.transition = "none";
+  ring.style.strokeDashoffset = 0;
+  label.textContent = "🎙️";
+}
 
 btn.addEventListener("click", async () => {
-  btn.disabled = true;
-  songEl.textContent = "";
-  usagesEl.replaceChildren();
+  if (app.dataset.state !== "idle") return;
+  results.replaceChildren();
+
+  let stream;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    statusEl.textContent = "Necesito permiso para usar el micrófono.";
+    return;
+  }
+
+  try {
     const recorder = new MediaRecorder(stream);
     const chunks = [];
     recorder.ondataavailable = (e) => chunks.push(e.data);
     const stopped = new Promise((resolve) => (recorder.onstop = resolve));
 
+    // Cuenta regresiva: el número baja cada segundo y el anillo se vacía.
+    app.dataset.state = "listening";
+    statusEl.textContent = "Escuchando…";
+    let left = SECONDS;
+    label.textContent = left;
+    resetRing();
+    void ring.getBoundingClientRect(); // fuerza el reinicio de la animación
+    ring.style.transition = `stroke-dashoffset ${SECONDS}s linear`;
+    ring.style.strokeDashoffset = CIRC;
+    const timer = setInterval(() => { left = Math.max(left - 1, 0); label.textContent = left; }, 1000);
+
     recorder.start();
-    statusEl.textContent = `Escuchando ${SECONDS} segundos...`;
     await new Promise((r) => setTimeout(r, SECONDS * 1000));
+    clearInterval(timer);
     recorder.stop();
     await stopped;
-    stream.getTracks().forEach((t) => t.stop()); // apaga el micrófono
 
-    statusEl.textContent = "Buscando...";
+    app.dataset.state = "searching";
+    statusEl.textContent = "Buscando…";
+    label.textContent = "…";
+
     const blob = new Blob(chunks, { type: recorder.mimeType });
     const res = await fetch("/v1/identify", {
       method: "POST",
@@ -54,30 +133,36 @@ btn.addEventListener("click", async () => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "error desconocido");
-
-    statusEl.textContent = "";
     show(data);
   } catch (err) {
     statusEl.textContent = "Error: " + err.message;
   } finally {
-    btn.disabled = false;
+    stream.getTracks().forEach((t) => t.stop()); // apaga el micrófono
+    resetRing();
+    app.dataset.state = "idle";
   }
 });
 
 function show(data) {
-  songEl.textContent = `${data.title} — ${data.artist}`;
+  const song = el("div", "song");
+  song.append(el("h2", "", data.title), el("p", "", data.artist));
+  results.append(song);
+
   if (data.usages.length === 0) {
-    statusEl.textContent = "Todavía no hay usos cargados para esta canción.";
+    statusEl.textContent = "Todavía no hay escenas cargadas para esta canción.";
     return;
   }
+  statusEl.textContent = `Aparece en ${data.usages.length} ${data.usages.length === 1 ? "lugar" : "lugares"}`;
+
   for (const u of data.usages) {
-    const li = document.createElement("li");
-    let text = `${u.kind}: ${u.work_title}`;
-    if (u.year) text += ` (${u.year})`;
-    if (u.season) text += ` · T${u.season}E${u.episode}`;
-    if (u.note) text += ` · ${u.note}`;
-    li.textContent = text; // textContent, no innerHTML: evita inyección de HTML
-    usagesEl.appendChild(li);
+    const card = el("div", "usage");
+    card.append(el("span", "badge", KINDS[u.kind] || u.kind));
+    card.append(el("h3", "", u.year ? `${u.work_title} (${u.year})` : u.work_title));
+    const detail = [];
+    if (u.season) detail.push(`Temporada ${u.season}, episodio ${u.episode}`);
+    if (u.note) detail.push(u.note);
+    if (detail.length) card.append(el("p", "", detail.join(" · ")));
+    results.append(card);
   }
 }
 </script>

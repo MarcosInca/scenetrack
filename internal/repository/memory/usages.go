@@ -2,38 +2,26 @@ package memory
 
 import (
 	"context"
-	"sync"
 
 	"scenetrack/internal/domain"
 )
 
+// UsageRepo guarda usos en memoria (solo demo).
 type UsageRepo struct {
-	mu   sync.RWMutex
-	data map[string][]domain.Usage
+	data map[string][]domain.Usage // clave: Track.Key()
 }
 
-func NewUsageRepo() *UsageRepo {
-	return &UsageRepo{data: make(map[string][]domain.Usage)}
+// NewDemo crea un repo con un dato de ejemplo (después solo se lee).
+func NewDemo() *UsageRepo {
+	demo := domain.Track{Artist: "Demo Artist", Title: "Demo Song"}
+	return &UsageRepo{data: map[string][]domain.Usage{
+		demo.Key(): {{
+			Work: domain.Work{Kind: domain.KindMovie, Title: "Pelicula Demo", Year: 2001},
+			Note: "Escena de la persecución final",
+		}},
+	}}
 }
 
-func (r *UsageRepo) Add(t domain.Track, u domain.Usage) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.data[t.Key()] = append(r.data[t.Key()], u)
-}
-
-func (r *UsageRepo) UsagesByTrack(ctx context.Context, t domain.Track) ([]domain.Usage, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	usages, ok := r.data[t.Key()]
-	if !ok {
-		return nil, domain.ErrNotFound
-	}
-	// Copia, para que nadie modifique nuestro slice interno desde afuera.
-	out := make([]domain.Usage, len(usages))
-	copy(out, usages)
-	return out, nil
+func (r *UsageRepo) UsagesByTrack(_ context.Context, t domain.Track) ([]domain.Usage, error) {
+	return r.data[t.Key()], nil
 }

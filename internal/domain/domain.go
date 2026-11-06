@@ -6,19 +6,16 @@ import (
 )
 
 var (
-	ErrNotFound     = errors.New("not found")
-	ErrNoMatch      = errors.New("no recognition match")
-	ErrInvalidInput = errors.New("invalid input")
+	ErrNoMatch      = errors.New("canción no reconocida")
+	ErrInvalidInput = errors.New("entrada inválida")
 )
 
 type Track struct {
-	ID     int64
 	Title  string
 	Artist string
-	ISRC   string
 }
 
-// Key normaliza para comparar "The Killers" con " the killers ".
+// Key normaliza artista y título para buscar en la base.
 func (t Track) Key() string {
 	return strings.ToLower(strings.TrimSpace(t.Artist)) + "|" +
 		strings.ToLower(strings.TrimSpace(t.Title))
@@ -43,8 +40,8 @@ type Work struct {
 type Usage struct {
 	ID           int64
 	Work         Work
-	Season       int // 0 si no aplica
-	Episode      int // 0 si no aplica
-	TimestampSec int // 0 si no se sabe
+	Season       int
+	Episode      int
+	TimestampSec int
 	Note         string
 }
