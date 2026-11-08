@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"time"
 
 	"scenetrack/internal/domain"
@@ -31,6 +32,7 @@ type Result struct {
 }
 
 func (s *Service) Identify(ctx context.Context, audio io.Reader, contentType string) (Result, error) {
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
@@ -42,5 +44,13 @@ func (s *Service) Identify(ctx context.Context, audio io.Reader, contentType str
 	if err != nil {
 		return Result{}, fmt.Errorf("buscar usos: %w", err)
 	}
+
+	// Resumen del pedido: lo que devolvió AudD y cuántos usos hay.
+	slog.Info("identify",
+		"artista", track.Artist,
+		"titulo", track.Title,
+		"usos", len(usages),
+		"ms", time.Since(start).Milliseconds(),
+	)
 	return Result{Track: track, Usages: usages}, nil
 }

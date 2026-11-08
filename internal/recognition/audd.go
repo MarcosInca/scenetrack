@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"time"
@@ -47,6 +48,8 @@ type auddResponse struct {
 }
 
 func (a *AudD) Identify(ctx context.Context, audio io.Reader, contentType string) (domain.Track, error) {
+	start := time.Now()
+
 	data, err := io.ReadAll(audio)
 	if err != nil {
 		return domain.Track{}, err
@@ -79,6 +82,16 @@ func (a *AudD) Identify(ctx context.Context, audio io.Reader, contentType string
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return domain.Track{}, fmt.Errorf("audd: respuesta inválida: %w", err)
 	}
+
+	// Resumen de cada llamada a AudD.
+	slog.Info("audd",
+		"http", resp.StatusCode,
+		"bytes", len(data),
+		"tipo", contentType,
+		"ms", time.Since(start).Milliseconds(),
+		"coincidencia", out.Result != nil,
+	)
+
 	switch {
 	case out.Error != nil:
 		return domain.Track{}, fmt.Errorf("audd error %d: %s", out.Error.Code, out.Error.Message)
