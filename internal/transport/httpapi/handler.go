@@ -14,14 +14,19 @@ import (
 
 const maxAudioBytes = 5 << 20 // 5 MB
 
-type Handler struct{ svc *service.Service }
+type Handler struct {
+	svc *service.Service
+	lim *limiter
+}
 
-func New(svc *service.Service) *Handler { return &Handler{svc: svc} }
+func New(svc *service.Service, trustProxy bool) *Handler {
+	return &Handler{svc: svc, lim: newLimiter(trustProxy)}
+}
 
-// Routes registra la API y sirve la carpeta web.
+// Routes registra la API (con límite de uso) y sirve la carpeta web.
 func (h *Handler) Routes(webDir string) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/identify", h.identify)
+	mux.Handle("POST /v1/identify", h.lim.wrap(h.identify))
 	mux.Handle("/", http.FileServer(http.Dir(webDir)))
 	return mux
 }

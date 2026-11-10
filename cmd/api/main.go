@@ -36,9 +36,11 @@ func run() error {
 	defer pool.Close()
 
 	svc := service.New(newRecognizer(), postgres.NewUsageRepo(pool))
+	// TRUST_PROXY=true solo en el hosting (detrás de su proxy), nunca en local.
+	api := httpapi.New(svc, os.Getenv("TRUST_PROXY") == "true")
 	srv := &http.Server{
 		Addr:              ":8080",
-		Handler:           httpapi.New(svc).Routes("web"),
+		Handler:           api.Routes("web"),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second, // mayor que el timeout del servicio
