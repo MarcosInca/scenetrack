@@ -26,22 +26,6 @@ func (h *Handler) Routes(webDir string) http.Handler {
 	return mux
 }
 
-// Lo que ve el cliente (separado del dominio).
-type usageJSON struct {
-	WorkTitle string `json:"work_title"`
-	Kind      string `json:"kind"`
-	Year      int    `json:"year,omitempty"`
-	Season    int    `json:"season,omitempty"`
-	Episode   int    `json:"episode,omitempty"`
-	Note      string `json:"note,omitempty"`
-}
-
-type identifyJSON struct {
-	Title  string      `json:"title"`
-	Artist string      `json:"artist"`
-	Usages []usageJSON `json:"usages"`
-}
-
 func (h *Handler) identify(w http.ResponseWriter, r *http.Request) {
 	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || !strings.HasPrefix(mt, "audio/") {
@@ -55,19 +39,7 @@ func (h *Handler) identify(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-
-	out := identifyJSON{Title: res.Track.Title, Artist: res.Track.Artist, Usages: []usageJSON{}}
-	for _, u := range res.Usages {
-		out.Usages = append(out.Usages, usageJSON{
-			WorkTitle: u.Work.Title,
-			Kind:      string(u.Work.Kind),
-			Year:      u.Work.Year,
-			Season:    u.Season,
-			Episode:   u.Episode,
-			Note:      u.Note,
-		})
-	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, res)
 }
 
 // fail traduce el error a un código HTTP.

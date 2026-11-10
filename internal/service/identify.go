@@ -25,10 +25,11 @@ func New(rec recognition.Recognizer, repo UsageRepository) *Service {
 	return &Service{rec: rec, repo: repo}
 }
 
-// Result es la canción reconocida y sus usos.
+// Result es lo que se devuelve al cliente (JSON).
 type Result struct {
-	Track  domain.Track
-	Usages []domain.Usage
+	Title  string         `json:"title"`
+	Artist string         `json:"artist"`
+	Usages []domain.Usage `json:"usages"`
 }
 
 func (s *Service) Identify(ctx context.Context, audio io.Reader, contentType string) (Result, error) {
@@ -44,6 +45,9 @@ func (s *Service) Identify(ctx context.Context, audio io.Reader, contentType str
 	if err != nil {
 		return Result{}, fmt.Errorf("buscar usos: %w", err)
 	}
+	if usages == nil {
+		usages = []domain.Usage{} // JSON: [] en vez de null
+	}
 
 	// Resumen del pedido: lo que devolvió AudD y cuántos usos hay.
 	slog.Info("identify",
@@ -52,5 +56,5 @@ func (s *Service) Identify(ctx context.Context, audio io.Reader, contentType str
 		"usos", len(usages),
 		"ms", time.Since(start).Milliseconds(),
 	)
-	return Result{Track: track, Usages: usages}, nil
+	return Result{Title: track.Title, Artist: track.Artist, Usages: usages}, nil
 }

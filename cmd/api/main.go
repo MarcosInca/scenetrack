@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"scenetrack/internal/recognition"
-	"scenetrack/internal/repository/memory"
 	"scenetrack/internal/repository/postgres"
 	"scenetrack/internal/service"
 	"scenetrack/internal/transport/httpapi"
@@ -29,13 +29,13 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	repo, closeRepo, err := newRepo(ctx)
+	pool, err := connect(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return err
 	}
-	defer closeRepo()
+	defer pool.Close()
 
-	svc := service.New(newRecognizer(), repo)
+	svc := service.New(newRecognizer(), postgres.NewUsageRepo(pool))
 	srv := &http.Server{
 		Addr:              ":8080",
 		Handler:           httpapi.New(svc).Routes("web"),
@@ -60,26 +60,24 @@ func run() error {
 	}
 }
 
-// newRepo usa Postgres si hay DATABASE_URL; si no, memoria.
-func newRepo(ctx context.Context) (service.UsageRepository, func(), error) {
-	dsn := os.Getenv("DATABASE_URL")
+// connect abre el pool de Postgres y verifica que responda.
+func connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	if dsn == "" {
-		slog.Info("datos: memoria (falta DATABASE_URL)")
-		return memory.NewDemo(), func() {}, nil
+		return nil, errors.New("falta DATABASE_URL")
 	}
-
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		return nil, nil, err
+		return nil, err
 	}
 	slog.Info("datos: postgres")
-	return postgres.NewUsageRepo(pool), pool.Close, nil
+	return pool, nil
 }
 
 // newRecognizer usa AudD si hay token; si no, el mock.
