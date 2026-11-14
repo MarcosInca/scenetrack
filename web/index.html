@@ -7,6 +7,7 @@
 <style>
   :root { --bg:#0f1115; --card:#181b22; --text:#f2f3f5; --muted:#8b93a1; --border:#262a33; --accent:#7c5cff; }
   * { box-sizing: border-box; }
+  [hidden] { display:none !important; }
   body { margin:0; min-height:100vh; display:grid; place-items:start center; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,sans-serif; }
   main { width:min(480px,100%); padding:2.5rem 1.25rem 4rem; text-align:center; }
   h1 { margin:0 0 .25rem; font-size:1.7rem; letter-spacing:-.02em; }
@@ -35,6 +36,20 @@
   .usage h3 { margin:.5rem 0 0; font-size:1.05rem; }
   .usage p { margin:.25rem 0 0; color:var(--muted); font-size:.92rem; }
   .badge { display:inline-block; padding:.15rem .6rem; border-radius:999px; font-size:.75rem; font-weight:600; background:rgba(124,92,255,.18); color:#b6a6ff; }
+
+  .add { margin-top:.5rem; background:transparent; color:#b6a6ff; border:1px solid var(--border); border-radius:999px; padding:.6rem 1.2rem; font:inherit; cursor:pointer; }
+  .add:hover { border-color:var(--accent); }
+
+  #scene-form { margin-top:1.5rem; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:1.25rem; text-align:left; position:relative; }
+  #scene-form h3 { margin:0; }
+  .hint { margin:.25rem 0 .5rem; color:var(--muted); font-size:.9rem; }
+  #scene-form label { display:block; margin-top:.75rem; color:var(--muted); font-size:.85rem; }
+  #scene-form input, #scene-form select { width:100%; margin-top:.25rem; padding:.6rem .8rem; border-radius:10px; border:1px solid var(--border); background:var(--bg); color:var(--text); font:inherit; }
+  .row { display:flex; gap:.75rem; }
+  .row label { flex:1; }
+  .send { margin-top:1rem; width:100%; padding:.7rem; border:0; border-radius:999px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  #form-msg { min-height:1.2rem; margin:.75rem 0 0; color:var(--muted); font-size:.9rem; }
+  .trap { position:absolute; left:-9999px; height:0; overflow:hidden; } /* campo trampa */
 </style>
 </head>
 <body>
@@ -58,6 +73,30 @@
 
   <p id="status">Tocá para escuchar</p>
   <section id="results"></section>
+
+  <form id="scene-form" hidden>
+    <h3>Agregar una escena</h3>
+    <p class="hint">Lo revisamos antes de publicarlo.</p>
+    <label>Canción <input name="title" required maxlength="200"></label>
+    <label>Artista <input name="artist" required maxlength="200"></label>
+    <label>Tipo
+      <select name="kind">
+        <option value="movie">Película</option>
+        <option value="series">Serie</option>
+        <option value="trailer">Tráiler</option>
+      </select>
+    </label>
+    <label>Título de la película o serie <input name="work" required maxlength="200"></label>
+    <label>Año <input name="year" type="number" min="1888" max="2100"></label>
+    <div id="series-fields" class="row" hidden>
+      <label>Temporada <input name="season" type="number" min="1" max="999"></label>
+      <label>Episodio <input name="episode" type="number" min="1" max="999"></label>
+    </div>
+    <label>Nota (opcional) <input name="note" maxlength="500" placeholder="Ej.: escena final"></label>
+    <div class="trap" aria-hidden="true"><input name="website" tabindex="-1" autocomplete="off"></div>
+    <button class="send" type="submit">Enviar</button>
+    <p id="form-msg"></p>
+  </form>
 </main>
 
 <script>
@@ -71,7 +110,12 @@ const label = document.getElementById("label");
 const statusEl = document.getElementById("status");
 const ring = document.getElementById("ring");
 const results = document.getElementById("results");
+const form = document.getElementById("scene-form");
+const formMsg = document.getElementById("form-msg");
+const seriesFields = document.getElementById("series-fields");
 ring.style.strokeDasharray = CIRC;
+
+let lastSong = null; // la última canción reconocida
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -89,6 +133,8 @@ function resetRing() {
 btn.addEventListener("click", async () => {
   if (app.dataset.state !== "idle") return;
   results.replaceChildren();
+  form.hidden = true;
+  formMsg.textContent = "";
 
   let stream;
   try {
@@ -131,7 +177,10 @@ btn.addEventListener("click", async () => {
       headers: { "Content-Type": blob.type },
       body: blob,
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 404) {
+      throw new Error("no reconocí la canción. Probá con música clara, sin voces y más cerca del parlante.");
+    }
     if (!res.ok) throw new Error(data.error || "error desconocido");
     show(data);
   } catch (err) {
@@ -144,27 +193,76 @@ btn.addEventListener("click", async () => {
 });
 
 function show(data) {
+  lastSong = data;
   const song = el("div", "song");
   song.append(el("h2", "", data.title), el("p", "", data.artist));
   results.append(song);
 
   if (data.usages.length === 0) {
     statusEl.textContent = "Todavía no hay escenas cargadas para esta canción.";
-    return;
+  } else {
+    statusEl.textContent = `Aparece en ${data.usages.length} ${data.usages.length === 1 ? "lugar" : "lugares"}`;
+    for (const u of data.usages) {
+      const card = el("div", "usage");
+      card.append(el("span", "badge", KINDS[u.kind] || u.kind));
+      card.append(el("h3", "", u.year ? `${u.work_title} (${u.year})` : u.work_title));
+      const detail = [];
+      if (u.season) detail.push(`Temporada ${u.season}, episodio ${u.episode}`);
+      if (u.note) detail.push(u.note);
+      if (detail.length) card.append(el("p", "", detail.join(" · ")));
+      results.append(card);
+    }
   }
-  statusEl.textContent = `Aparece en ${data.usages.length} ${data.usages.length === 1 ? "lugar" : "lugares"}`;
 
-  for (const u of data.usages) {
-    const card = el("div", "usage");
-    card.append(el("span", "badge", KINDS[u.kind] || u.kind));
-    card.append(el("h3", "", u.year ? `${u.work_title} (${u.year})` : u.work_title));
-    const detail = [];
-    if (u.season) detail.push(`Temporada ${u.season}, episodio ${u.episode}`);
-    if (u.note) detail.push(u.note);
-    if (detail.length) card.append(el("p", "", detail.join(" · ")));
-    results.append(card);
-  }
+  const add = el("button", "add", "➕ Agregar una escena de esta canción");
+  add.addEventListener("click", openForm);
+  results.append(add);
 }
+
+// --- Formulario de envíos ---
+
+function openForm() {
+  const f = form.elements;
+  f.title.value = lastSong.title;   // vienen de AudD, tal cual
+  f.artist.value = lastSong.artist;
+  form.hidden = false;
+  f.work.focus();
+}
+
+form.elements.kind.addEventListener("change", (e) => {
+  seriesFields.hidden = e.target.value !== "series"; // temporada y episodio solo en series
+});
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = form.elements;
+  const body = {
+    artist: f.artist.value,
+    title: f.title.value,
+    kind: f.kind.value,
+    work: f.work.value,
+    year: Number(f.year.value) || 0,
+    season: Number(f.season.value) || 0,
+    episode: Number(f.episode.value) || 0,
+    note: f.note.value,
+    website: f.website.value, // campo trampa
+  };
+  formMsg.textContent = "Enviando…";
+  try {
+    const res = await fetch("/v1/submissions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "error desconocido");
+    form.reset();
+    form.hidden = true;
+    statusEl.textContent = "¡Gracias! Lo revisamos antes de publicarlo.";
+  } catch (err) {
+    formMsg.textContent = err.message;
+  }
+});
 </script>
 </body>
 </html>

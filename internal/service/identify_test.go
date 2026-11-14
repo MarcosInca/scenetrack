@@ -22,10 +22,16 @@ func (f fakeRec) Identify(context.Context, io.Reader, string) (domain.Track, err
 type fakeRepo struct {
 	usages []domain.Usage
 	err    error
+	saved  []domain.Submission // lo que se guardó
 }
 
-func (f fakeRepo) UsagesByTrack(context.Context, domain.Track) ([]domain.Usage, error) {
+func (f *fakeRepo) UsagesByTrack(context.Context, domain.Track) ([]domain.Usage, error) {
 	return f.usages, f.err
+}
+
+func (f *fakeRepo) AddSubmission(_ context.Context, s domain.Submission) error {
+	f.saved = append(f.saved, s)
+	return f.err
 }
 
 func TestIdentify(t *testing.T) {
@@ -47,7 +53,7 @@ func TestIdentify(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := New(tc.rec, tc.repo).Identify(context.Background(), strings.NewReader("audio"), "audio/webm")
+			res, err := New(tc.rec, &tc.repo).Identify(context.Background(), strings.NewReader("audio"), "audio/webm")
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("error = %v, quería %v", err, tc.wantErr)
 			}

@@ -92,3 +92,29 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION add_scene(text, text, text, text, int, int, int, text)
   FROM PUBLIC, anon, authenticated;
+
+  CREATE TABLE submissions (
+    id         BIGSERIAL PRIMARY KEY,
+    artist     TEXT NOT NULL CHECK (length(artist) <= 200),
+    title      TEXT NOT NULL CHECK (length(title) <= 200),
+    kind       TEXT NOT NULL CHECK (kind IN ('movie', 'series', 'trailer')),
+    work       TEXT NOT NULL CHECK (length(work) <= 200),
+    year       INT  CHECK (year BETWEEN 1888 AND 2100),
+    season     INT  CHECK (season > 0),
+    episode    INT  CHECK (episode > 0),
+    note       TEXT CHECK (length(note) <= 500),
+    status     TEXT NOT NULL DEFAULT 'pending'
+               CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE submissions ENABLE ROW LEVEL SECURITY;
+
+-- Aprobar un envío: lo carga como escena y lo marca como aprobado.
+CREATE OR REPLACE FUNCTION approve_submission(p_id bigint)
+RETURNS void LANGUAGE sql AS $$
+  SELECT add_scene(artist, title, kind, work, year, season, episode, note)
+  FROM submissions WHERE id = p_id AND status = 'pending';
+  UPDATE submissions SET status = 'approved' WHERE id = p_id AND status = 'pending';
+$$;
+
+REVOKE EXECUTE ON FUNCTION approve_submission(bigint) FROM PUBLIC, anon, authenticated;

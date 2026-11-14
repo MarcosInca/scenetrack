@@ -31,3 +31,15 @@ func (r *UsageRepo) UsagesByTrack(ctx context.Context, t domain.Track) ([]domain
 	}
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[domain.Usage])
 }
+
+// AddSubmission guarda un envío como pendiente (0 y "" se guardan como NULL).
+func (r *UsageRepo) AddSubmission(ctx context.Context, s domain.Submission) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO submissions (artist, title, kind, work, year, season, episode, note)
+		VALUES ($1, $2, $3, $4, NULLIF($5, 0), NULLIF($6, 0), NULLIF($7, 0), NULLIF($8, ''))`,
+		s.Artist, s.Title, s.Kind, s.Work, s.Year, s.Season, s.Episode, s.Note)
+	if err != nil {
+		return fmt.Errorf("insert submission: %w", err)
+	}
+	return nil
+}

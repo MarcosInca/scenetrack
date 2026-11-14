@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	perMinute = 6   // pedidos por minuto por IP
-	dailyMax  = 100 // pedidos totales por día (cuida la cuota de AudD)
+	identifyPerMin = 6   // reconocimientos por minuto por IP
+	identifyPerDay = 100 // reconocimientos totales por día (cuida la cuota de AudD)
+	submitPerMin   = 3   // envíos por minuto por IP
+	submitPerDay   = 300 // envíos totales por día
 )
 
 type visitor struct {
@@ -24,13 +26,17 @@ type visitor struct {
 type limiter struct {
 	mu         sync.Mutex
 	visitors   map[string]*visitor
+	perMin     int
+	dayMax     int
 	day        time.Time // día UTC en curso
 	count      int       // pedidos aceptados hoy
 	trustProxy bool
 }
 
-func newLimiter(trustProxy bool) *limiter {
-	return &limiter{visitors: map[string]*visitor{}, trustProxy: trustProxy}
+func newLimiter(perMin, dayMax int, trustProxy bool) *limiter {
+	return &limiter{
+		visitors: map[string]*visitor{}, perMin: perMin, dayMax: dayMax, trustProxy: trustProxy,
+	}
 }
 
 // wrap deja pasar el pedido o responde 429.
@@ -53,13 +59,14 @@ func (l *limiter) allow(ip string) bool {
 	if today := now.UTC().Truncate(24 * time.Hour); !today.Equal(l.day) {
 		l.day, l.count = today, 0 // nuevo día: reinicia el contador
 	}
-	if l.count >= dailyMax {
+	if l.count >= l.dayMax {
 		return false
 	}
 
 	v, ok := l.visitors[ip]
 	if !ok {
-		v = &visitor{lim: rate.NewLimiter(rate.Every(time.Minute/perMinute), perMinute)}
+		every := rate.Every(time.Minute / time.Duration(l.perMin))
+		v = &visitor{lim: rate.NewLimiter(every, l.perMin)}
 		l.visitors[ip] = v
 	}
 	v.seen = now

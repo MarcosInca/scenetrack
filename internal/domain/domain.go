@@ -3,9 +3,10 @@ package domain
 import "errors"
 
 var (
-	ErrNoMatch      = errors.New("canción no reconocida")
-	ErrInvalidInput = errors.New("entrada inválida")
-	ErrUnavailable  = errors.New("reconocedor no disponible") // sin cuota o saturado
+	ErrNoMatch           = errors.New("canción no reconocida")
+	ErrInvalidInput      = errors.New("entrada inválida")
+	ErrInvalidSubmission = errors.New("datos inválidos")           // lo escrito en el formulario
+	ErrUnavailable       = errors.New("reconocedor no disponible") // sin cuota o saturado
 )
 
 // Track es una canción reconocida.
@@ -22,4 +23,16 @@ type Usage struct {
 	Season  int    `json:"season,omitempty"`
 	Episode int    `json:"episode,omitempty"`
 	Note    string `json:"note,omitempty"`
+}
+
+// Submission es una escena enviada por un usuario, pendiente de revisión.
+type Submission struct {
+	Artist  string `json:"artist"`
+	Title   string `json:"title"`
+	Kind    string `json:"kind"`
+	Work    string `json:"work"`
+	Year    int    `json:"year"`
+	Season  int    `json:"season"`
+	Episode int    `json:"episode"`
+	Note    string `json:"note"`
 }

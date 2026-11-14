@@ -18,10 +18,10 @@ type UsageRepository interface {
 
 type Service struct {
 	rec  recognition.Recognizer
-	repo UsageRepository
+	repo Repository
 }
 
-func New(rec recognition.Recognizer, repo UsageRepository) *Service {
+func New(rec recognition.Recognizer, repo Repository) *Service {
 	return &Service{rec: rec, repo: repo}
 }
 
