@@ -5,6 +5,7 @@ import "errors"
 var (
 	ErrNoMatch      = errors.New("canción no reconocida")
 	ErrInvalidInput = errors.New("entrada inválida")
+	ErrUnavailable  = errors.New("reconocedor no disponible") // sin cuota o saturado
 )
 
 // Track es una canción reconocida.

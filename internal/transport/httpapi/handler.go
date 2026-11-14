@@ -57,6 +57,9 @@ func fail(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "audio inválido")
 	case errors.Is(err, domain.ErrNoMatch):
 		writeError(w, http.StatusNotFound, "no reconocí la canción")
+	case errors.Is(err, domain.ErrUnavailable):
+		slog.Error("reconocedor no disponible", "err", err) // revisá la cuota de AudD
+		writeError(w, http.StatusServiceUnavailable, "el reconocedor no está disponible ahora, probá más tarde")
 	default:
 		slog.Error("identify", "err", err) // detalle solo en el log
 		writeError(w, http.StatusInternalServerError, "error interno")

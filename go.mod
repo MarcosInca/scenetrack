@@ -3,6 +3,7 @@ module scenetrack
 go 1.27.2
 
 require (
+	github.com/AudDMusic/audd-go v1.5.21
 	github.com/jackc/pgx/v5 v5.12.0
 	golang.org/x/time v0.16.0
 )
